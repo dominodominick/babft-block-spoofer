@@ -1,4 +1,4 @@
---[[ BABFT Block Spoofer v2 — self-contained UI ]]
+--[[ BABFT Block Spoofer v3 ]]
 if _G.BABFT_UI then pcall(function() _G.BABFT_UI:Destroy() end) end
 
 local Players     = game:GetService("Players")
@@ -8,10 +8,10 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse       = LocalPlayer:GetMouse()
 
 local C = {
-    bg = Color3.fromRGB(22, 24, 30), panel = Color3.fromRGB(31, 34, 42),
-    accent = Color3.fromRGB(108, 140, 255), ok = Color3.fromRGB(96, 200, 120),
-    warn = Color3.fromRGB(230, 190, 90), err = Color3.fromRGB(235, 100, 100),
-    text = Color3.fromRGB(228, 231, 238), dim = Color3.fromRGB(140, 146, 160),
+    bg = Color3.fromRGB(22,24,30), panel = Color3.fromRGB(31,34,42),
+    accent = Color3.fromRGB(108,140,255), ok = Color3.fromRGB(96,200,120),
+    warn = Color3.fromRGB(230,190,90), err = Color3.fromRGB(235,100,100),
+    text = Color3.fromRGB(228,231,238), dim = Color3.fromRGB(140,146,160),
 }
 
 local function new(class, props, parent)
@@ -21,53 +21,62 @@ local function new(class, props, parent)
     return o
 end
 
--- parent resolution, PlayerGui first
-local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-if not playerGui then playerGui = LocalPlayer:WaitForChild("PlayerGui", 10) end
-
+local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
 local gui
-local built, buildErr = pcall(function()
-    gui = new("ScreenGui", {
-        Name = "BABFTUI", ResetOnSpawn = false, IgnoreGuiInset = true,
-        DisplayOrder = 999, Enabled = true,
-    }, playerGui)
+local okBuild, buildErr = pcall(function()
+    gui = new("ScreenGui", { Name = "BABFTUI", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 999 }, playerGui)
 end)
-
-if not built or not gui then
-    -- last-resort visible error
-    local f = new("TextLabel", {
+if not okBuild or not gui then
+    new("TextLabel", {
         Size = UDim2.fromOffset(360, 60), Position = UDim2.fromOffset(20, 20),
-        BackgroundColor3 = Color3.fromRGB(120, 30, 30), TextColor3 = Color3.new(1,1,1),
-        Font = Enum.Font.Code, TextSize = 12, TextWrapped = true,
-        Text = "UI FAILED: " .. tostring(buildErr),
+        BackgroundColor3 = Color3.fromRGB(120,30,30), TextColor3 = Color3.new(1,1,1),
+        Font = Enum.Font.Code, TextSize = 12, TextWrapped = true, Text = "UI FAILED: " .. tostring(buildErr),
     }, playerGui)
-    warn("[spoofer] UI build failed:", buildErr)
     return
 end
 _G.BABFT_UI = gui
 
---------------------------------------------------------------- state
 local grid, spacing, atCursor = { 3, 3 }, 4, false
 
 local function equip()
-    local char     = LocalPlayer.Character
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    local t = (char and char:FindFirstChild("BuildingTool"))
-           or (backpack and backpack:FindFirstChild("BuildingTool"))
-    if t and t.Parent == backpack and char and char:FindFirstChild("Humanoid") then
-        char.Humanoid:EquipTool(t)
+    local char, bp = LocalPlayer.Character, LocalPlayer:FindFirstChild("Backpack")
+    local t = (char and char:FindFirstChild("BuildingTool")) or (bp and bp:FindFirstChild("BuildingTool"))
+    if t and bp and t.Parent == bp and char and char:FindFirstChild("Humanoid") then
+        pcall(function() char.Humanoid:EquipTool(t) end)
         task.wait(0.2)
     end
     return t
 end
 
 local function findZone()
-    for _, v in ipairs(workspace:GetChildren()) do
-        local tc = v:FindFirstChild("TeamColor")
-        if tc then
-            local val = tc:IsA("ValueBase") and tc.Value or tc
-            if val == LocalPlayer.TeamColor then return v end
+    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local myTeam = LocalPlayer.TeamColor
+    local function scan(container, depth)
+        for _, v in ipairs(container:GetChildren()) do
+            if v:IsA("BasePart") then
+                local tc = v:FindFirstChild("TeamColor")
+                if tc then
+                    local val = tc:IsA("ValueBase") and tc.Value or tc
+                    if val == myTeam then return v end
+                end
+            end
+            if depth < 4 and (v:IsA("Folder") or v:IsA("Model")) and v ~= LocalPlayer.Character then
+                local r = scan(v, depth + 1)
+                if r then return r end
+            end
         end
+    end
+    local found = scan(workspace, 0)
+    if found then return found end
+    if root then
+        local best, bestD = nil, math.huge
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v:IsA("BasePart") and v.Anchored and v.Size.X > 24 and v.Size.Z > 24 then
+                local d = (v.Position - root.Position).Magnitude
+                if d < bestD then best, bestD = v, d end
+            end
+        end
+        if best and bestD < 300 then return best end
     end
 end
 
@@ -77,38 +86,32 @@ local function count(z)
     return n
 end
 
---------------------------------------------------------------- shell
 local toggle = new("TextButton", {
     Size = UDim2.fromOffset(112, 32), Position = UDim2.fromOffset(16, 16),
-    BackgroundColor3 = C.accent, BorderSizePixel = 0, AutoButtonColor = true,
-    Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C.text, Text = "BLOCKS",
+    BackgroundColor3 = C.accent, BorderSizePixel = 0, Font = Enum.Font.GothamBold,
+    TextSize = 13, TextColor3 = C.text, Text = "BLOCKS",
 }, gui)
 new("UICorner", { CornerRadius = UDim.new(0, 8) }, toggle)
 
 local frame = new("Frame", {
-    Size = UDim2.fromOffset(330, 520), Position = UDim2.fromOffset(16, 56),
+    Size = UDim2.fromOffset(330, 528), Position = UDim2.fromOffset(16, 56),
     BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = true,
 }, gui)
 new("UICorner", { CornerRadius = UDim.new(0, 10) }, frame)
 
-local header = new("Frame", {
-    Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.panel, BorderSizePixel = 0,
-}, frame)
+local header = new("Frame", { Size = UDim2.new(1,0,0,32), BackgroundColor3 = C.panel, BorderSizePixel = 0 }, frame)
 new("UICorner", { CornerRadius = UDim.new(0, 10) }, header)
 new("TextLabel", {
-    Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(12, 0),
-    BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 13,
-    TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Text = "BLOCK SPOOFER",
+    Size = UDim2.new(1,-40,1,0), Position = UDim2.fromOffset(12,0), BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C.text,
+    TextXAlignment = Enum.TextXAlignment.Left, Text = "BLOCK SPOOFER v3",
 }, header)
 new("TextButton", {
-    Size = UDim2.fromOffset(32, 32), Position = UDim2.new(1, -32, 0, 0),
-    BackgroundTransparency = 1, Text = "X", Font = Enum.Font.GothamBold,
-    TextSize = 14, TextColor3 = C.dim,
-}, header).MouseButton1Click:Connect(function()
-    frame.Visible = false; toggle.Text = "BLOCKS"
-end)
+    Size = UDim2.fromOffset(32,32), Position = UDim2.new(1,-32,0,0), BackgroundTransparency = 1,
+    Text = "X", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.dim,
+}, header).MouseButton1Click:Connect(function() frame.Visible = false; toggle.Text = "BLOCKS" end)
 
-do -- drag
+do
     local on, sp, sf
     header.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
@@ -126,57 +129,40 @@ do -- drag
     end)
 end
 
---------------------------------------------------------------- status strip
 local status = new("TextLabel", {
-    Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(10, 36),
-    BackgroundColor3 = Color3.fromRGB(14, 16, 20), BorderSizePixel = 0,
-    Font = Enum.Font.Code, TextSize = 10, TextColor3 = C.dim,
-    TextXAlignment = Enum.TextXAlignment.Left, Text = "checking...",
+    Size = UDim2.new(1,-20,0,20), Position = UDim2.fromOffset(10,36),
+    BackgroundColor3 = Color3.fromRGB(14,16,20), BorderSizePixel = 0, Font = Enum.Font.Code,
+    TextSize = 10, TextColor3 = C.dim, TextXAlignment = Enum.TextXAlignment.Left, Text = "checking...",
 }, frame)
-new("UIPadding", { PaddingLeft = UDim.new(0, 6) }, status)
+new("UIPadding", { PaddingLeft = UDim.new(0,6) }, status)
 
 task.spawn(function()
     while gui.Parent do
-        local t = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("BuildingTool"))
+        local char = LocalPlayer.Character
+        local t = (char and char:FindFirstChild("BuildingTool"))
                or (LocalPlayer:FindFirstChild("Backpack") and LocalPlayer:FindFirstChild("Backpack"):FindFirstChild("BuildingTool"))
         local z = findZone()
-        status.Text = ("tool:%s  zone:%s  blocks:%d"):format(t and "YES" or "no", z and "YES" or "no", z and count(z) or 0)
+        status.Text = ("tool:%s zone:%s blocks:%d"):format(t and "YES" or "no", z and "YES" or "no", z and count(z) or 0)
         status.TextColor3 = (t and z) and C.ok or C.warn
         task.wait(1)
     end
 end)
 
---------------------------------------------------------------- log
-local function log(msg, kind)
-    local col = (kind == "ok" and C.ok) or (kind == "err" and C.err) or (kind == "warn" and C.warn) or C.dim
-    print("[spoofer]", msg)
-    local lbl = new("TextLabel", {
-        Size = UDim2.new(1, -10, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 10,
-        TextColor3 = col, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
-        LayoutOrder = tick() * 1000, Text = ("[%s] %s"):format(os.date("%H:%M:%S"), msg),
-    }, logList)
-    task.delay(0.05, function()
-        if logList and logList.Parent then logList.CanvasSize = UDim2.fromOffset(0, logList.UIListLayout.AbsoluteContentSize.Y + 8) end
-    end)
-end
-
---------------------------------------------------------------- widgets
 local function label(text, y)
     new("TextLabel", {
-        Size = UDim2.new(1, -20, 0, 13), Position = UDim2.fromOffset(10, y),
-        BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 10,
-        TextColor3 = C.dim, TextXAlignment = Enum.TextXAlignment.Left, Text = text,
+        Size = UDim2.new(1,-20,0,13), Position = UDim2.fromOffset(10,y), BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = C.dim,
+        TextXAlignment = Enum.TextXAlignment.Left, Text = text,
     }, frame)
 end
 
 local function button(text, w, x, y, col, cb)
     local b = new("TextButton", {
-        Size = UDim2.fromOffset(w, 26), Position = UDim2.fromOffset(x, y),
-        BackgroundColor3 = col or C.panel, BorderSizePixel = 0,
-        Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C.text, Text = text,
+        Size = UDim2.fromOffset(w,26), Position = UDim2.fromOffset(x,y),
+        BackgroundColor3 = col or C.panel, BorderSizePixel = 0, Font = Enum.Font.GothamBold,
+        TextSize = 11, TextColor3 = C.text, Text = text,
     }, frame)
-    new("UICorner", { CornerRadius = UDim.new(0, 6) }, b)
+    new("UICorner", { CornerRadius = UDim.new(0,6) }, b)
     b.MouseButton1Click:Connect(function()
         local ok, err = pcall(cb)
         if not ok then log("error: " .. tostring(err), "err") end
@@ -184,64 +170,76 @@ local function button(text, w, x, y, col, cb)
     return b
 end
 
---------------------------------------------------------------- inputs
+local logList = new("ScrollingFrame", {
+    Size = UDim2.new(1,-20,0,96), Position = UDim2.fromOffset(10,426),
+    BackgroundColor3 = Color3.fromRGB(14,16,20), BorderSizePixel = 0,
+    ScrollBarThickness = 4, ScrollBarImageColor3 = C.accent, CanvasSize = UDim2.fromOffset(0,0),
+}, frame)
+new("UICorner", { CornerRadius = UDim.new(0,6) }, logList)
+new("UIListLayout", { Padding = UDim.new(0,1), SortOrder = Enum.SortOrder.LayoutOrder }, logList)
+
+local seq = 0
+local function log(msg, kind)
+    local col = (kind == "ok" and C.ok) or (kind == "err" and C.err) or (kind == "warn" and C.warn) or C.dim
+    seq += 1
+    new("TextLabel", {
+        Size = UDim2.new(1,-10,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+        Font = Enum.Font.Code, TextSize = 10, TextColor3 = col, TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = seq, Text = msg,
+    }, logList)
+    task.delay(0.05, function()
+        if logList.Parent then logList.CanvasSize = UDim2.fromOffset(0, logList.UIListLayout.AbsoluteContentSize.Y + 6) end
+    end)
+end
+
 label("BLOCK NAME", 62)
 local nameBox = new("TextBox", {
-    Size = UDim2.new(1, -84, 0, 26), Position = UDim2.fromOffset(10, 77),
-    BackgroundColor3 = C.panel, BorderSizePixel = 0, ClearTextOnFocus = false,
-    Font = Enum.Font.Code, TextSize = 12, TextColor3 = C.text, PlaceholderText = "GoldBlock",
+    Size = UDim2.new(1,-84,0,26), Position = UDim2.fromOffset(10,77), BackgroundColor3 = C.panel,
+    BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Code, TextSize = 12,
+    TextColor3 = C.text, PlaceholderText = "GoldBlock",
 }, frame)
-new("UICorner", { CornerRadius = UDim.new(0, 6) }, nameBox)
+new("UICorner", { CornerRadius = UDim.new(0,6) }, nameBox)
 
 local idBox = new("TextBox", {
-    Size = UDim2.fromOffset(54, 26), Position = UDim2.new(1, -74, 0, 77),
-    BackgroundColor3 = C.panel, BorderSizePixel = 0, ClearTextOnFocus = false,
-    Font = Enum.Font.Code, TextSize = 12, TextColor3 = C.dim, Text = "9",
+    Size = UDim2.fromOffset(54,26), Position = UDim2.new(1,-74,0,77), BackgroundColor3 = C.panel,
+    BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Code, TextSize = 12,
+    TextColor3 = C.dim, Text = "9",
 }, frame)
-new("UICorner", { CornerRadius = UDim.new(0, 6) }, idBox)
+new("UICorner", { CornerRadius = UDim.new(0,6) }, idBox)
 
 label("QUICK PICK", 110)
-local picks = { "WoodBlock", "StoneBlock", "GoldBlock", "MetalBlock", "BoxingGlove", "RedCandy" }
-for i, n in ipairs(picks) do
-    local b = button(n, 74, 10 + ((i - 1) % 4) * 78, 125 + math.floor((i - 1) / 4) * 28,
-        Color3.fromRGB(42, 46, 57), function() nameBox.Text = n end)
+for i, n in ipairs({ "WoodBlock", "StoneBlock", "GoldBlock", "MetalBlock" }) do
+    local b = button(n, 74, 10 + (i-1)*78, 125, Color3.fromRGB(42,46,57), function() nameBox.Text = n end)
     b.TextSize = 9
 end
 
-label("GRID", 187)
-for i, g in ipairs({ { "1x1", 1, 1 }, { "3x3", 3, 3 }, { "5x3", 5, 3 }, { "5x5", 5, 5 } }) do
-    local b = button(g[1], 74, 10 + (i - 1) * 78, 202, C.panel, function()
-        grid = { g[2], g[3] }; log("grid " .. g[1])
-    end)
+label("GRID", 156)
+for i, g in ipairs({ { "1x1",1,1 }, { "3x3",3,3 }, { "5x3",5,3 }, { "5x5",5,5 } }) do
+    local b = button(g[1], 74, 10 + (i-1)*78, 171, C.panel, function() grid = { g[2], g[3] }; log("grid "..g[1]) end)
     b.TextSize = 10
 end
 
-label("SPACING / POSITION", 234)
+label("SPACING / POSITION", 203)
 local spBox = new("TextBox", {
-    Size = UDim2.fromOffset(48, 24), Position = UDim2.fromOffset(10, 249),
-    BackgroundColor3 = C.panel, BorderSizePixel = 0, ClearTextOnFocus = false,
-    Font = Enum.Font.Code, TextSize = 11, TextColor3 = C.text, Text = "4",
+    Size = UDim2.fromOffset(48,24), Position = UDim2.fromOffset(10,218), BackgroundColor3 = C.panel,
+    BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Code, TextSize = 11,
+    TextColor3 = C.text, Text = "4",
 }, frame)
-new("UICorner", { CornerRadius = UDim.new(0, 6) }, spBox)
-spBox.FocusLost:Connect(function()
-    spacing = tonumber(spBox.Text) or 4; spBox.Text = tostring(spacing)
-end)
+new("UICorner", { CornerRadius = UDim.new(0,6) }, spBox)
+spBox.FocusLost:Connect(function() spacing = tonumber(spBox.Text) or 4; spBox.Text = tostring(spacing) end)
 
-local posBtn = button("IN FRONT", 92, 66, 249, C.panel, function()
+local posBtn = button("IN FRONT", 92, 66, 218, C.panel, function()
     atCursor = not atCursor
     posBtn.Text = atCursor and "AT CURSOR" or "IN FRONT"
     log("position: " .. (atCursor and "cursor" or "in front"))
 end)
-
-button("EQUIP TOOL", 96, 166, 249, Color3.fromRGB(44, 48, 60), function()
-    local t = equip()
-    log(t and "equipped" or "BuildingTool not found", t and "ok" or "err")
+button("EQUIP", 96, 166, 218, Color3.fromRGB(44,48,60), function()
+    local t = equip(); log(t and "equipped" or "no BuildingTool", t and "ok" or "err")
 end)
 
---------------------------------------------------------------- actions
 local function resolveRF()
     local t = equip()
-    if not t then return nil, "BuildingTool not found" end
+    if not t then return nil, "no BuildingTool" end
     local rf = t:FindFirstChildOfClass("RemoteFunction")
     if not rf then return nil, "tool has no RemoteFunction" end
     return rf
@@ -249,114 +247,122 @@ end
 
 local function originPoint()
     if atCursor and Mouse.Hit then return Mouse.Hit.Position end
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then return (root.CFrame * CFrame.new(0, 0, -18)).Position end
-    return nil
+    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if root then return (root.CFrame * CFrame.new(0,0,-18)).Position end
+end
+
+local function placeRemote()
+    local name = nameBox.Text
+    if name == "" then return 0, "no name set" end
+    local rf, e = resolveRF()
+    if not rf then return 0, e end
+    local z = findZone()
+    if not z then return 0, "zone not found" end
+    local origin = originPoint()
+    if not origin then return 0, "no position" end
+    local id = tonumber(idBox.Text) or 9
+    local nx, ny = grid[1], grid[2]
+    local done, fail, lastErr = 0, 0, nil
+    log(("remote: %dx%d %s"):format(nx, ny, name))
+    for x = -(nx-1)/2, (nx-1)/2 do
+        for y = 0, ny-1 do
+            local p = origin + Vector3.new(x*spacing, y*spacing, 0)
+            local ok, err = pcall(rf.InvokeServer, rf, name, id, z,
+                z.CFrame:ToObjectSpace(CFrame.new(p)), true, p, false)
+            if ok then done += 1 else fail += 1; lastErr = err end
+            task.wait(0.03)
+        end
+    end
+    if lastErr then log("last error: " .. tostring(lastErr), "err") end
+    return done, fail
+end
+
+local function placeActivate()
+    local t = equip()
+    if not t then return 0, "no BuildingTool" end
+    local holder
+    for _, ch in ipairs(t:GetChildren()) do
+        if ch:IsA("ValueBase") then
+            local n = ch.Name:lower()
+            if n:find("block") or n:find("select") or n:find("current") then holder = ch; break end
+        end
+    end
+    if holder then
+        local ok = pcall(function() holder.Value = nameBox.Text end)
+        log(ok and ("set " .. holder.Name) or "could not set holder", ok and "ok" or "warn")
+    else
+        log("no block holder on tool", "warn")
+    end
+    for _ = 1, math.min(grid[1] * grid[2], 8) do
+        pcall(function() t:Activate() end)
+        task.wait(0.12)
+    end
+    return 1, 0
 end
 
 local function place()
     local name = nameBox.Text
     if name == "" then return log("set a block name", "err") end
-    local id = tonumber(idBox.Text) or 9
-    local rf, e = resolveRF()
-    if not rf then return log(e, "err") end
     local z = findZone()
-    if not z then return log("plot zone not found", "err") end
-    local origin = originPoint()
-    if not origin then return log("no position (no character)", "err") end
-
-    local nx, ny = grid[1], grid[2]
-    local done, fail = 0, 0
-    log(("placing %dx%d %s"):format(nx, ny, name))
-    for x = -(nx - 1) / 2, (nx - 1) / 2 do
-        for y = 0, ny - 1 do
-            local p = origin + Vector3.new(x * spacing, y * spacing, 0)
-            local ok = pcall(rf.InvokeServer, rf, name, id, z,
-                z.CFrame:ToObjectSpace(CFrame.new(p)), true, p, false)
-            if ok then done += 1 else fail += 1 end
-            task.wait(0.03)
-        end
-    end
+    if not z then return log("PLOT ZONE NOT FOUND — see diagnose", "err") end
+    local done, fail = placeRemote()
+    if type(done) ~= "number" then log(tostring(fail), "err"); return end
     log(("%s: %d ok, %d failed"):format(name, done, fail), fail > 0 and "warn" or "ok")
+    if done == 0 then
+        log("remote rejected — trying Activate fallback", "warn")
+        local a = placeActivate()
+        log(a > 0 and "activate attempted" or "activate failed", "warn")
+    end
 end
 
-local function probe()
-    local name = nameBox.Text
-    if name == "" then return log("set a block name", "err") end
-    local rf, e = resolveRF()
-    if not rf then return log(e, "err") end
+local function diagnose()
+    log("--- DIAGNOSE ---", "warn")
+    local char = LocalPlayer.Character
+    log("character: " .. (char and "yes" or "NO"), char and "ok" or "err")
+    local t = equip()
+    log("tool: " .. (t and t:GetFullName() or "NOT FOUND"), t and "ok" or "err")
+    if t then
+        for _, ch in ipairs(t:GetChildren()) do log("  child " .. ch.ClassName .. " / " .. ch.Name) end
+        for k, v in pairs(t:GetAttributes()) do log(("  attr %s = %s"):format(k, tostring(v))) end
+    end
     local z = findZone()
-    if not z then return log("plot zone not found", "err") end
-
-    local before = count(z)
-    local p = z.Position + Vector3.new(0, 40, 0)
-    local ok = pcall(rf.InvokeServer, rf, name, 9, z,
-        z.CFrame:ToObjectSpace(CFrame.new(p)), true, p, false)
-    task.wait(0.4)
-    local spawned = ok and count(z) > before
-    log(name .. (spawned and " -> SPAWNED" or " -> nothing"), spawned and "ok" or "err")
-    addResult(name, spawned)
-end
-
-local function dump()
-    local n = 0
-    for _, v in ipairs(LocalPlayer:GetChildren()) do
-        if v.Name == "Data" then
-            for _, b in ipairs(v:GetChildren()) do addResult(b.Name, nil); n += 1 end
-        end
-    end
+    log("zone: " .. (z and z:GetFullName() or "NOT FOUND"), z and "ok" or "err")
+    log("teamcolor: " .. tostring(LocalPlayer.TeamColor))
+    local dn = 0
+    for _, v in ipairs(LocalPlayer:GetChildren()) do if v.Name == "Data" then dn = #v:GetChildren() end end
+    log("data entries: " .. dn)
+    local rfs = {}
     for _, v in ipairs(RS:GetDescendants()) do
-        if v:IsA("Folder") and #v:GetChildren() > 3 then addResult(v.Name, nil); n += 1 end
+        if v:IsA("RemoteFunction") then table.insert(rfs, v:GetFullName()) end
     end
-    log(("dumped %d names"):format(n), n > 0 and "ok" or "warn")
+    log("RS RemoteFunctions: " .. #rfs)
+    for i = 1, math.min(#rfs, 8) do log("  " .. rfs[i]) end
+    log("--- END ---", "warn")
 end
 
-button("PLACE", 152, 10, 281, Color3.fromRGB(52, 110, 72), place)
-button("PROBE", 76, 168, 281, C.panel, probe)
-button("DUMP", 76, 250, 281, C.panel, dump)
+button("PLACE", 152, 10, 250, Color3.fromRGB(52,110,72), place)
+button("PROBE", 76, 168, 250, C.panel, function()
+    local z = findZone()
+    if not z then return log("no zone", "err") end
+    local before = count(z)
+    placeRemote()
+    task.wait(0.3)
+    log(count(z) > before and "SPAWNED" or "nothing spawned", count(z) > before and "ok" or "err")
+end)
+button("DIAGNOSE", 76, 250, 250, Color3.fromRGB(60,52,90), diagnose)
 
---------------------------------------------------------------- results
-label("RESULTS (click to select)", 316)
-local resultList = new("ScrollingFrame", {
-    Size = UDim2.new(1, -20, 0, 88), Position = UDim2.fromOffset(10, 331),
-    BackgroundColor3 = Color3.fromRGB(14, 16, 20), BorderSizePixel = 0,
-    ScrollBarThickness = 4, ScrollBarImageColor3 = C.accent,
-    CanvasSize = UDim2.fromOffset(0, 0),
-}, frame)
-new("UICorner", { CornerRadius = UDim.new(0, 6) }, resultList)
-new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, resultList)
-
-function addResult(name, ok)
-    local row = new("TextButton", {
-        Size = UDim2.new(1, -8, 0, 18), BackgroundColor3 = Color3.fromRGB(24, 27, 34),
-        BorderSizePixel = 0, Font = Enum.Font.Code, TextSize = 10,
-        TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = #resultList:GetChildren(),
-        TextColor3 = (ok == true and C.ok) or (ok == false and C.err) or C.dim,
-        Text = (ok == true and "OK  " or ok == false and "XX  " or "--  ") .. name,
-    }, resultList)
-    row.MouseButton1Click:Connect(function() nameBox.Text = name end)
-    resultList.CanvasSize = UDim2.fromOffset(0, resultList.UIListLayout.AbsoluteContentSize.Y + 8)
-end
-
---------------------------------------------------------------- log panel
-label("LOG", 426)
-local logList = new("ScrollingFrame", {
-    Size = UDim2.new(1, -20, 0, 82), Position = UDim2.fromOffset(10, 441),
-    BackgroundColor3 = Color3.fromRGB(14, 16, 20), BorderSizePixel = 0,
-    ScrollBarThickness = 4, ScrollBarImageColor3 = C.accent,
-    CanvasSize = UDim2.fromOffset(0, 0),
-}, frame)
-new("UICorner", { CornerRadius = UDim.new(0, 6) }, logList)
-new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, logList)
+button("CLEAR LOG", 318, 10, 396, Color3.fromRGB(34,37,45), function()
+    for _, ch in ipairs(logList:GetChildren()) do if ch:IsA("TextLabel") then ch:Destroy() end end
+    logList.CanvasSize = UDim2.fromOffset(0,0)
+end)
+label("LOG", 414)
 
 toggle.MouseButton1Click:Connect(function()
     frame.Visible = not frame.Visible
     toggle.Text = frame.Visible and "HIDE" or "BLOCKS"
 end)
 
---------------------------------------------------------------- boot
 frame.Visible = true
 toggle.Text = "HIDE"
-log("loaded v2.0.0", "ok")
-log("EQUIP TOOL, then PROBE a name before placing")
+log("loaded v3", "ok")
+log("press DIAGNOSE first and read the output")
