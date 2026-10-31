@@ -351,7 +351,69 @@ button("PROBE", 76, 168, 250, C.panel, function()
 end)
 button("DIAGNOSE", 76, 250, 250, Color3.fromRGB(60,52,90), diagnose)
 
-button("CLEAR LOG", 318, 10, 396, Color3.fromRGB(34,37,45), function()
+local function showCopyBox(text)
+    local box = new("Frame", {
+        Size = UDim2.fromOffset(318, 210), Position = UDim2.new(0.5, -159, 0.5, -105),
+        BackgroundColor3 = C.bg, BorderSizePixel = 0, ZIndex = 30,
+    }, gui)
+    new("UICorner", { CornerRadius = UDim.new(0, 8) }, box)
+    new("TextLabel", {
+        Size = UDim2.new(1, -16, 0, 18), Position = UDim2.fromOffset(8, 6),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 11,
+        TextColor3 = C.warn, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 31,
+        Text = "no clipboard api — select all, then copy",
+    }, box)
+    local tb = new("TextBox", {
+        Size = UDim2.new(1, -16, 1, -56), Position = UDim2.fromOffset(8, 28),
+        BackgroundColor3 = Color3.fromRGB(14,16,20), BorderSizePixel = 0,
+        Font = Enum.Font.Code, TextSize = 10, TextColor3 = C.text,
+        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+        ClearTextOnFocus = false, MultiLine = true, TextWrapped = true, ZIndex = 31,
+        Text = text,
+    }, box)
+    new("UICorner", { CornerRadius = UDim.new(0, 6) }, tb)
+    new("TextButton", {
+        Size = UDim2.new(1, -16, 0, 22), Position = UDim2.new(0, 8, 1, -28),
+        BackgroundColor3 = C.panel, BorderSizePixel = 0, Font = Enum.Font.GothamBold,
+        TextSize = 11, TextColor3 = C.text, ZIndex = 31, Text = "CLOSE",
+    }, box).MouseButton1Click:Connect(function() box:Destroy() end)
+    tb:CaptureFocus()
+end
+
+local function copyLog()
+    local rows = {}
+    for _, ch in ipairs(logList:GetChildren()) do
+        if ch:IsA("TextLabel") then table.insert(rows, ch) end
+    end
+    table.sort(rows, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+
+    local out = {
+        ("BABFT spoofer v3 log"):format(),
+        ("place:%s  user:%s  %s"):format(tostring(game.PlaceId), LocalPlayer.Name, os.date("%Y-%m-%d %H:%M:%S")),
+        ("status: %s"):format(status.Text),
+        ("zone: %s"):format(tostring(findZone() and findZone():GetFullName() or "NOT FOUND")),
+        "---",
+    }
+    for _, r in ipairs(rows) do table.insert(out, r.Text) end
+    local text = table.concat(out, "\n")
+
+    local ok = pcall(function()
+        if type(setclipboard) == "function" then return setclipboard(text) end
+        if type(toClipboard) == "function" then return toClipboard(text) end
+        if type(writeclipboard) == "function" then return writeclipboard(text) end
+        error("none")
+    end)
+
+    if ok then
+        log(("copied %d lines"):format(#out), "ok")
+    else
+        log("clipboard unavailable, opening text box", "warn")
+        showCopyBox(text)
+    end
+end
+
+button("COPY LOG", 152, 10, 396, Color3.fromRGB(46,70,110), copyLog)
+button("CLEAR LOG", 152, 176, 396, Color3.fromRGB(34,37,45), function()
     for _, ch in ipairs(logList:GetChildren()) do if ch:IsA("TextLabel") then ch:Destroy() end end
     logList.CanvasSize = UDim2.fromOffset(0,0)
 end)
