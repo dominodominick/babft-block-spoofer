@@ -1,0 +1,62 @@
+-- BABFT block prober. Tries candidate names, reports which ones actually spawn.
+local Players     = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local function getTool()
+    local char     = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local tool = (char and char:FindFirstChild("BuildingTool"))
+              or (backpack and backpack:FindFirstChild("BuildingTool"))
+    if tool and tool.Parent == backpack and char then
+        char.Humanoid:EquipTool(tool); task.wait(0.25)
+    end
+    return tool
+end
+
+local function getZone()
+    for _, v in ipairs(workspace:GetChildren()) do
+        local tc = v:FindFirstChild("TeamColor")
+        if tc then
+            local val = tc:IsA("ValueBase") and tc.Value or tc
+            if val == LocalPlayer.TeamColor then return v end
+        end
+    end
+end
+
+local function count(zone)
+    local n = 0
+    for _ in zone:GetDescendants() do n += 1 end
+    return n
+end
+
+local function probe(name)
+    local tool, zone = getTool(), getZone()
+    if not tool or not zone then return false end
+    local rf = tool:FindFirstChildOfClass("RemoteFunction")
+    if not rf then return false end
+    local before = count(zone)
+    local p = zone.Position + Vector3.new(0, 40, 0)
+    local ok = pcall(function()
+        rf:InvokeServer(name, 9, zone, zone.CFrame:ToObjectSpace(CFrame.new(p)), true, p, false)
+    end)
+    task.wait(0.4)
+    return ok and count(zone) > before
+end
+
+-- names worth trying; add your own variants
+local CANDIDATES = {
+    "BoxingGlove", "BoxingGloveBlock", "Boxing Glove", "Glove",
+    "RedCandy", "CandyRed", "Candy_Red", "Red Candy", "Candy",
+}
+
+-- dump anything you already own, for naming convention hints
+for _, v in ipairs(LocalPlayer:GetChildren()) do
+    if v.Name == "Data" then
+        for _, b in ipairs(v:GetChildren()) do print("[data]", b.Name) end
+    end
+end
+
+for _, n in ipairs(CANDIDATES) do
+    print(("[probe] %-18s %s"):format(n, probe(n) and "OK" or "-"))
+    task.wait(0.2)
+end
